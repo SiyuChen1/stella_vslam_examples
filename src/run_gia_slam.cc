@@ -1,4 +1,4 @@
-#include "util/kitti_util.h"
+#include "util/gia_util.h"
 
 #ifdef HAVE_PANGOLIN_VIEWER
 #include "pangolin_viewer/viewer.h"
@@ -22,6 +22,7 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <spdlog/spdlog.h>
 #include <popl.hpp>
 
@@ -36,6 +37,63 @@ namespace fs = ghc::filesystem;
 #include <gperftools/profiler.h>
 #endif
 
+void save_files_for_evaluation(const std::shared_ptr<stella_vslam::system>& slam,
+                               const std::vector<double>& track_times,
+                               const std::string& config_file_path,
+                               const int& start_id,
+                               const std::string& eval_log_dir) {
+    // Specify the path for the new folder
+    ghc::filesystem::path eval_log_path = eval_log_dir;
+
+    try {
+        // Check if the directory already exists
+        if(!ghc::filesystem::exists(eval_log_path)) {
+            // Create the directory
+            if (!ghc::filesystem::create_directory(eval_log_path)) {
+                std::cout << "Evaluation directory cannot be created." << std::endl;
+            }
+        }
+    } catch (const ghc::filesystem::filesystem_error& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    // output the trajectories for evaluation
+    slam->save_frame_trajectory(eval_log_path / "frame_trajectory.txt", "GIA");
+    slam->save_keyframe_trajectory(eval_log_path / "keyframe_trajectory.txt", "GIA");
+    // output the tracking times for evaluation
+    std::ofstream ofs(eval_log_path / "track_times.txt", std::ios::out);
+    if (ofs.is_open()) {
+        for (const auto track_time : track_times) {
+            ofs << track_time << std::endl;
+        }
+        ofs.close();
+    }
+
+    // output the start_id information for evaluation
+    std::ofstream ofs_id(eval_log_path / "start_id.txt", std::ios::out);
+    if (ofs_id.is_open()) {
+        ofs_id << start_id << std::endl;
+        ofs_id.close();
+    }
+
+    try {
+        // Define the source file path and the destination folder
+        ghc::filesystem::path source = config_file_path;
+        ghc::filesystem::path destination = eval_log_dir;
+
+        // Construct the full path for the destination file
+        ghc::filesystem::path destination_file = destination / source.filename();
+
+        // Copy the file
+        ghc::filesystem::copy_file(source, destination_file);
+
+        std::cout << "YAML File copied successfully." << std::endl;
+    }
+    catch (const ghc::filesystem::filesystem_error& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+}
+
 int mono_tracking(const std::shared_ptr<stella_vslam::system>& slam,
                   const std::shared_ptr<stella_vslam::config>& cfg,
                   const std::string& sequence_dir_path,
@@ -45,8 +103,10 @@ int mono_tracking(const std::shared_ptr<stella_vslam::system>& slam,
                   const bool auto_term,
                   const std::string& eval_log_dir,
                   const std::string& map_db_path,
-                  const std::string& viewer_string) {
-    const kitti_sequence sequence(sequence_dir_path);
+                  const std::string& viewer_string,
+                  const unsigned int& start_id,
+                  const std::string& config_file_path) {
+    const gia_sequence sequence(sequence_dir_path, start_id);
     const auto frames = sequence.get_frames();
 
     // create a viewer object
@@ -87,6 +147,13 @@ int mono_tracking(const std::shared_ptr<stella_vslam::system>& slam,
 
             const auto& frame = frames.at(i);
             const auto img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+
+            // const auto img_ori = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+
+            // // resize
+            // cv::Mat img_resize, img;
+            // cv::resize(img_ori, img_resize, cv::Size(640, 480), 0, 0);
+            // img_resize.convertTo(img, -1, 1, 0);
 
             const auto tp_1 = std::chrono::steady_clock::now();
 
@@ -154,17 +221,7 @@ int mono_tracking(const std::shared_ptr<stella_vslam::system>& slam,
     slam->shutdown();
 
     if (!eval_log_dir.empty()) {
-        // output the trajectories for evaluation
-        slam->save_frame_trajectory(eval_log_dir + "/frame_trajectory.txt", "kitti");
-        slam->save_keyframe_trajectory(eval_log_dir + "/keyframe_trajectory.txt", "kitti");
-        // output the tracking times for evaluation
-        std::ofstream ofs(eval_log_dir + "/track_times.txt", std::ios::out);
-        if (ofs.is_open()) {
-            for (const auto track_time : track_times) {
-                ofs << track_time << std::endl;
-            }
-            ofs.close();
-        }
+        save_files_for_evaluation(slam, track_times, config_file_path, start_id, eval_log_dir);
     }
 
     std::sort(track_times.begin(), track_times.end());
@@ -190,8 +247,10 @@ int stereo_tracking(const std::shared_ptr<stella_vslam::system>& slam,
                     const bool auto_term,
                     const std::string& eval_log_dir,
                     const std::string& map_db_path,
-                    const std::string& viewer_string) {
-    const kitti_sequence sequence(sequence_dir_path);
+                    const std::string& viewer_string,
+                    const unsigned int& start_id,
+                    const std::string& config_file_path) {
+    const gia_sequence sequence(sequence_dir_path, start_id);
     const auto frames = sequence.get_frames();
 
     // create a viewer object
@@ -231,14 +290,18 @@ int stereo_tracking(const std::shared_ptr<stella_vslam::system>& slam,
             }
 
             const auto& frame = frames.at(i);
-            const auto left_img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
-            const auto right_img = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
-            
-            // cv::Mat left_img, right_img;
             // const auto left_img_ori = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
             // const auto right_img_ori = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
-            // left_img_ori.convertTo(left_img, -1, 1.2, 0);
-            // right_img_ori.convertTo(right_img, -1, 1.2, 0);
+
+            // cv::Mat left_img, right_img, left_resize, right_resize;
+            // // resize
+            // cv::resize(left_img_ori, left_resize, cv::Size(640, 480), 0, 0);
+            // cv::resize(right_img_ori, right_resize, cv::Size(640, 480), 0, 0);
+            // left_resize.convertTo(left_img, -1, 1, 0);
+            // right_resize.convertTo(right_img, -1, 1, 0);
+
+            const auto left_img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+            const auto right_img = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
 
             const auto tp_1 = std::chrono::steady_clock::now();
 
@@ -306,17 +369,7 @@ int stereo_tracking(const std::shared_ptr<stella_vslam::system>& slam,
     slam->shutdown();
 
     if (!eval_log_dir.empty()) {
-        // output the trajectories for evaluation
-        slam->save_frame_trajectory(eval_log_dir + "/frame_trajectory.txt", "TUM");
-        slam->save_keyframe_trajectory(eval_log_dir + "/keyframe_trajectory.txt", "TUM");
-        // output the tracking times for evaluation
-        std::ofstream ofs(eval_log_dir + "/track_times.txt", std::ios::out);
-        if (ofs.is_open()) {
-            for (const auto track_time : track_times) {
-                ofs << track_time << std::endl;
-            }
-            ofs.close();
-        }
+        save_files_for_evaluation(slam, track_times, config_file_path, start_id, eval_log_dir);
     }
 
     std::sort(track_times.begin(), track_times.end());
@@ -341,6 +394,7 @@ int main(int argc, char* argv[]) {
     // create options
     popl::OptionParser op("Allowed options");
     auto help = op.add<popl::Switch>("h", "help", "produce help message");
+    auto start_id = op.add<popl::Value<unsigned int>>("", "start-id", "start id in the image sequence to perform slam");
     auto vocab_file_path = op.add<popl::Value<std::string>>("v", "vocab", "vocabulary file path");
     auto data_dir_path = op.add<popl::Value<std::string>>("d", "data-dir", "directory path which contains dataset");
     auto config_file_path = op.add<popl::Value<std::string>>("c", "config", "config file path");
@@ -379,6 +433,13 @@ int main(int argc, char* argv[]) {
     }
     if (!vocab_file_path->is_set() || !data_dir_path->is_set() || !config_file_path->is_set()) {
         std::cerr << "invalid arguments" << std::endl;
+        std::cerr << std::endl;
+        std::cerr << op << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    if (start_id->value() < 51) {
+        std::cerr << "the first 50 frames should not be used because of the sensor synchronisation problem" << std::endl;
         std::cerr << std::endl;
         std::cerr << op << std::endl;
         return EXIT_FAILURE;
@@ -478,7 +539,9 @@ int main(int argc, char* argv[]) {
                             auto_term->is_set(),
                             eval_log_dir->value(),
                             map_db_path_out->value(),
-                            viewer_string);
+                            viewer_string,
+                            start_id->value(),
+                            config_file_path->value());
     }
     else if (slam->get_camera()->setup_type_ == stella_vslam::camera::setup_type_t::Stereo) {
         ret = stereo_tracking(slam,
@@ -490,7 +553,9 @@ int main(int argc, char* argv[]) {
                               auto_term->is_set(),
                               eval_log_dir->value(),
                               map_db_path_out->value(),
-                              viewer_string);
+                              viewer_string,
+                              start_id->value(),
+                              config_file_path->value());
     }
     else {
         throw std::runtime_error("Invalid setup type: " + slam->get_camera()->get_setup_type_string());

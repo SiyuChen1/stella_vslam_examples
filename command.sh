@@ -1,0 +1,1 @@
+./run_gia_slam --disable-mapping -v /home/siyuchen/lib/orb_vocab/orb_vocab.fbow -d /home/siyuchen/20231019_Stereodata/20231019_142036/ -c /home/siyuchen/lib/stella_vslam/example/gia/GIA_mono_1936_1216.yaml

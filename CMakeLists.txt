@@ -19,6 +19,8 @@ else()
     message(STATUS "Stack trace logger: DISABLED")
 endif()
 
+set(USE_PANGOLIN_VIEWER OFF CACHE BOOL "Use PangolinViewer or SocketViewer for visualisation")
+
 set(USE_GOOGLE_PERFTOOLS OFF CACHE BOOL "Enable profiler of google-perftools")
 if(USE_GOOGLE_PERFTOOLS)
     find_package(Gperftools REQUIRED)
@@ -30,13 +32,20 @@ endif()
 
 # ----- Show dialog -----
 
-find_package(pangolin_viewer)
-if(pangolin_viewer_FOUND)
-    message(STATUS "Viewer for examples: PangolinViewer")
-endif()
-find_package(socket_publisher)
-if(socket_publisher_FOUND)
-    message(STATUS "Viewer for examples: SocketPublisher")
+if(USE_PANGOLIN_VIEWER)
+    find_package(pangolin_viewer)
+    if(pangolin_viewer_FOUND)
+        message(STATUS "Viewer for examples: PangolinViewer")
+    else()
+        message(STATUS "Viewer for examples: PangolinViewer NOT FOUNDED")
+    endif()
+else()
+    find_package(socket_publisher)
+    if(socket_publisher_FOUND)
+        message(STATUS "Viewer for examples: SocketPublisher")
+    else()
+        message(STATUS "Viewer for examples: PangolinViewer NOT FOUNDED")
+    endif()
 endif()
 
 # ----- Build example executables -----
@@ -57,6 +66,9 @@ list(APPEND EXECUTABLE_TARGETS run_euroc_slam)
 
 add_executable(run_kitti_slam src/run_kitti_slam.cc src/util/kitti_util.cc)
 list(APPEND EXECUTABLE_TARGETS run_kitti_slam)
+
+add_executable(run_gia_slam src/run_gia_slam.cc src/util/gia_util.cc)
+list(APPEND EXECUTABLE_TARGETS run_gia_slam)
 
 add_executable(run_tum_rgbd_slam src/run_tum_rgbd_slam.cc src/util/tum_rgbd_util.cc)
 list(APPEND EXECUTABLE_TARGETS run_tum_rgbd_slam)
